@@ -1,0 +1,158 @@
+package timer
+
+import "core:fmt"
+import "core:math"
+import "core:strconv"
+import "core:strings"
+import rl "vendor:raylib"
+
+Width :: 1080
+Height :: 720
+
+collission_mouse_rect :: proc(rect: rl.Rectangle) -> bool {
+	pos := rl.GetMousePosition()
+	if pos.x > rect.x &&
+	   pos.x < rect.x + rect.width &&
+	   pos.y > rect.y &&
+	   pos.y < rect.y + rect.height {
+		return true
+	}
+	return false
+}
+
+
+//you should only modify secs_full
+//time.secs_full += 3600 for adding an hour
+//time.secs_full += 60 for adding a minute
+Time :: struct {
+	hours:     int,
+	mins:      int,
+	secs:      int,
+	mili:      int,
+	secs_full: f32,
+}
+
+update_time :: proc(time: ^Time) {
+	time.secs_full += rl.GetFrameTime()
+	time.mili = int((time.secs_full - math.floor(time.secs_full)) * 100)
+	time.secs = int(time.secs_full) % 60
+	time.mins = (int(math.floor(time.secs_full)) / 60) % 60
+	time.hours = int(math.floor(time.secs_full)) / 3600
+}
+
+get_time_string :: proc(time: Time) -> string {
+	b := strings.builder_make()
+	buf: [8]byte
+
+	strings.write_string(&b, strconv.itoa(buf[:], time.hours))
+	strings.write_rune(&b, ':')
+
+	strings.write_string(&b, strconv.itoa(buf[:], time.mins))
+	strings.write_rune(&b, ':')
+
+	strings.write_string(&b, strconv.itoa(buf[:], time.secs))
+	strings.write_rune(&b, ':')
+
+
+	strings.write_string(&b, strconv.itoa(buf[:], time.mili))
+
+	return strings.to_string(b)
+}
+
+ButtonState :: enum {
+	Unpaused,
+	Paused,
+}
+
+main :: proc() {
+	rl.InitWindow(Width, Height, "timer")
+	rl.SetTargetFPS(60)
+
+	font := rl.GetFontDefault()
+	time := Time{}
+
+	dims := rl.MeasureTextEx(font, "0:00:00:00", 40.0, 10.0)
+	pos := rl.Vector2{Width / 2 - dims.x / 2, Height / 2 - dims.y}
+
+	buttons_area := rl.Rectangle{Width / 2 - 200, Height / 2 + 50, 400, 100}
+
+	buttons := slice_rect(buttons_area, 2, rl.Vector2{10.0, 10.0}, 50.0)
+	pause_color := rl.Color{87, 215, 247, 255}
+	stop_color := rl.Color{255, 79, 79, 255}
+
+	paused_buttons := slice_rect(buttons_area, 3, rl.Vector2{10.0, 10.0}, 30.0)
+
+	update_timer := true
+	button_state := ButtonState.Unpaused
+
+	for !rl.WindowShouldClose() {
+
+		//update buttons
+		switch button_state {
+		case .Unpaused:
+			//keyboard hotkeys
+			if 
+
+			if collission_mouse_rect(buttons[0]) {
+				pause_color = {139, 220, 240, 255}
+
+				if rl.IsMouseButtonPressed(.LEFT) {
+					update_timer = false
+					button_state = .Paused
+				}
+			} else {
+				pause_color = {87, 215, 247, 255}
+			}
+
+			if collission_mouse_rect(buttons[1]) {
+				stop_color = {245, 122, 122, 255}
+
+				if rl.IsMouseButtonPressed(.LEFT) {
+					time.secs_full = 0.0
+				}
+			} else {
+				stop_color = {255, 79, 79, 255}
+			}
+
+		case .Paused:
+		}
+
+		if update_timer {
+			update_time(&time)
+		}
+
+		//rendering
+		rl.BeginDrawing()
+		rl.ClearBackground({240, 240, 240, 255})
+
+		rl.DrawTextEx(
+			font,
+			strings.clone_to_cstring(get_time_string(time), context.temp_allocator),
+			pos,
+			40.0,
+			10.0,
+			rl.BLACK,
+		)
+
+		switch button_state {
+		case .Unpaused:
+			rl.DrawRectangleRec(buttons[0], pause_color)
+			adjust_and_draw_text("pause", buttons[0])
+
+			rl.DrawRectangleRec(buttons[1], stop_color)
+			adjust_and_draw_text("stop", buttons[1])
+		case .Paused:
+			for rect in paused_buttons {
+				rl.DrawRectangleRec(rect, rl.BLACK)
+			}
+		}
+
+		rl.EndDrawing()
+
+		free_all(context.temp_allocator)
+	}
+
+	delete(buttons)
+
+	rl.CloseWindow()
+}
