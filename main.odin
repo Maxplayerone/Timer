@@ -80,7 +80,6 @@ main :: proc() {
 	pause_color := rl.Color{87, 215, 247, 255}
 	start_color := rl.Color{255, 79, 79, 255}
 	save_color := rl.Color{162, 245, 73, 255}
-	//start_color := rl.Color{245, 73, 159, 255}
 
 	buttons_area := rl.Rectangle{Width / 2 - 300, Height / 2 + 50, 600, 100}
 
@@ -90,6 +89,14 @@ main :: proc() {
 	update_timer := false
 	started := false
 
+	saved_popup := rl.Rectangle{Width - 350.0, Height - 75.0, 300.0, 50.0}
+	animation_time_max := 1.5
+	animaton_time := 0.0
+	play_popup_animation := false
+	last_saved_time := Time{}
+	saved_popup_color := rl.Color{0, 255, 0, 255}
+
+	/*
 	data, ok := os.read_entire_file_from_filename("time.json", context.temp_allocator)
 	if !ok {
 		fmt.eprintln("Failed to load the file!")
@@ -106,12 +113,14 @@ main :: proc() {
 		single_time := t.(json.Object)
 		fmt.println(single_time)
 	}
+	*/
 
 	for !rl.WindowShouldClose() {
 
 		//update buttons
 		if rl.IsKeyPressed(.S) {
 			update_timer = false
+			play_popup_animation = true
 
 			buf, ok := json.marshal(time, allocator = context.temp_allocator)
 			if ok != nil {
@@ -142,11 +151,15 @@ main :: proc() {
 				os.write_string(fd, "]")
 			}
 
+			last_saved_time = time
+
 			time.secs_full = 0.0
 			time.mins = 0
 			time.secs = 0
 			time.mili = 0
 			time.hours = 0
+
+			started = false
 		}
 
 		if collission_mouse_rect(buttons[0]) {
@@ -154,29 +167,46 @@ main :: proc() {
 
 			if rl.IsMouseButtonPressed(.LEFT) {
 				update_timer = false
+				play_popup_animation = true
 
-				/*
 				buf, ok := json.marshal(time, allocator = context.temp_allocator)
 				if ok != nil {
 					fmt.println(ok)
 				}
-				previous_stuff, ok2 := os.read_entire_file("time.json", context.temp_allocator)
-				if !ok2 {
-					fmt.println(ok2)
-				}
+				fd, open_err := os.open("time.json", os.O_RDWR)
+				defer os.close(fd)
 
-				new_buf := slice.concatenate(
-					[][]u8{buf, {u8(','), u8('\n')}, previous_stuff},
-					context.temp_allocator,
+				previous_data_tmp, _ := os.read_entire_file(
+					"time.json",
+					allocator = context.temp_allocator,
 				)
 
-				os.write_entire_file("time.json", new_buf)
-				*/
+				//skipping the opening and closing square bracket 
+				previous_data := previous_data_tmp
+				if len(previous_data_tmp) > 0 {
+					previous_data = previous_data_tmp[1:]
+
+					os.write_string(fd, "[")
+					os.write_string(fd, string(buf))
+					os.write_string(fd, ",\n")
+					os.write_string(fd, string(previous_data))
+				} else {
+
+					os.write_string(fd, "[")
+					os.write_string(fd, string(buf))
+					os.write_string(fd, ",\n")
+					os.write_string(fd, "]")
+				}
+
+				last_saved_time = time
+
 				time.secs_full = 0.0
 				time.mins = 0
 				time.secs = 0
 				time.mili = 0
 				time.hours = 0
+
+				started = false
 			}
 		} else {
 			save_color = {162, 245, 73, 255}
@@ -272,6 +302,26 @@ main :: proc() {
 		//rendering
 		rl.BeginDrawing()
 		rl.ClearBackground({240, 240, 240, 255})
+
+		if play_popup_animation {
+			animaton_time += f64(rl.GetFrameTime())
+			if animaton_time >= animation_time_max {
+				animaton_time = 0.0
+				play_popup_animation = false
+				saved_popup_color.a = 255
+			}
+
+			saved_popup_color.a -= 2
+
+			rl.DrawRectangleRec(saved_popup, saved_popup_color)
+			adjust_and_draw_text(
+				strings.concatenate(
+					{"time spent: ", get_time_string(last_saved_time)},
+					context.temp_allocator,
+				),
+				saved_popup,
+			)
+		}
 
 		rl.DrawTextEx(
 			font,
