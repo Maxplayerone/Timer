@@ -63,6 +63,44 @@ get_time_string :: proc(time: Time) -> string {
 	return strings.to_string(b)
 }
 
+Scene :: enum {
+	Main,
+	Log,
+}
+
+get_serialized_times :: proc(allocator := context.allocator) -> [dynamic]Time {
+	times := make([dynamic]Time, allocator)
+
+	data, ok := os.read_entire_file_from_filename("time.json", context.temp_allocator)
+
+	if !ok {
+		fmt.eprintln("Failed to load the file!")
+	}
+
+	json_data, err := json.parse(data, allocator = context.temp_allocator)
+	if err != .None {
+		fmt.eprintln("Failed to parse the json file.")
+		fmt.eprintln("Error:", err)
+	}
+
+	for time_obj_unpacked in json_data.(json.Array) {
+		tmp_time := Time{}
+
+		//sometimes time_obj_unpacked isn't json.Object...for some reason
+		#partial switch time_obj in time_obj_unpacked {
+		case json.Object:
+			//fmt.println(time_obj)
+			tmp_time.hours = int(time_obj["hours"].(json.Float))
+			tmp_time.mins = int(time_obj["mins"].(json.Float))
+			tmp_time.secs = int(time_obj["secs"].(json.Float))
+			tmp_time.mili = int(time_obj["mili"].(json.Float))
+			append(&times, tmp_time)
+		}
+	}
+
+	return times
+}
+
 main :: proc() {
 	tracking_allocator: mem.Tracking_Allocator
 	mem.tracking_allocator_init(&tracking_allocator, context.allocator)
@@ -96,76 +134,33 @@ main :: proc() {
 	last_saved_time := Time{}
 	saved_popup_color := rl.Color{0, 255, 0, 255}
 
-	/*
-	data, ok := os.read_entire_file_from_filename("time.json", context.temp_allocator)
-	if !ok {
-		fmt.eprintln("Failed to load the file!")
-		return
-	}
+	log_rect := rl.Rectangle{Width - 75.0, 25.0, 50.0, 50.0}
+	log_color := rl.GRAY
 
-	json_data, err := json.parse(data, allocator = context.temp_allocator)
-	if err != .None {
-		fmt.eprintln("Failed to parse the json file.")
-		fmt.eprintln("Error:", err)
-		return
-	}
-	for t in json_data.(json.Array) {
-		single_time := t.(json.Object)
-		fmt.println(single_time)
-	}
-	*/
+	time_rect := rl.Rectangle{100.0, 100.0, Width - 200.0, 70.0}
+	time_rect_y_increment := f32(90.0)
+	time_log_cursor := 0
+
+	scene := Scene.Main
+
+	serialized_times := make([dynamic]Time, context.allocator)
 
 	for !rl.WindowShouldClose() {
 
-		//update buttons
-		if rl.IsKeyPressed(.S) {
-			update_timer = false
-			play_popup_animation = true
-
-			buf, ok := json.marshal(time, allocator = context.temp_allocator)
-			if ok != nil {
-				fmt.println(ok)
-			}
-			fd, open_err := os.open("time.json", os.O_RDWR)
-			defer os.close(fd)
-
-			previous_data_tmp, _ := os.read_entire_file(
-				"time.json",
-				allocator = context.temp_allocator,
-			)
-
-			//skipping the opening and closing square bracket 
-			previous_data := previous_data_tmp
-			if len(previous_data_tmp) > 0 {
-				previous_data = previous_data_tmp[1:]
-
-				os.write_string(fd, "[")
-				os.write_string(fd, string(buf))
-				os.write_string(fd, ",\n")
-				os.write_string(fd, string(previous_data))
+		if rl.IsKeyPressed(.I) {
+			if scene == .Main {
+				scene = .Log
+				delete(serialized_times)
+				serialized_times = get_serialized_times()
 			} else {
-
-				os.write_string(fd, "[")
-				os.write_string(fd, string(buf))
-				os.write_string(fd, ",\n")
-				os.write_string(fd, "]")
+				scene = .Main
 			}
-
-			last_saved_time = time
-
-			time.secs_full = 0.0
-			time.mins = 0
-			time.secs = 0
-			time.mili = 0
-			time.hours = 0
-
-			started = false
 		}
 
-		if collission_mouse_rect(buttons[0]) {
-			save_color = {211, 250, 127, 255}
-
-			if rl.IsMouseButtonPressed(.LEFT) {
+		//update buttons
+		switch scene {
+		case .Main:
+			if rl.IsKeyPressed(.S) {
 				update_timer = false
 				play_popup_animation = true
 
@@ -208,26 +203,59 @@ main :: proc() {
 
 				started = false
 			}
-		} else {
-			save_color = {162, 245, 73, 255}
-		}
 
-
-		if started {
-			if rl.IsKeyPressed(.F) {
-				time.secs_full = 0.0
-				time.mins = 0
-				time.secs = 0
-				time.mili = 0
-				time.hours = 0
-				update_timer = false
-				started = false
-			}
-
-			if collission_mouse_rect(buttons[2]) {
-				start_color = {245, 122, 122, 255}
+			if collission_mouse_rect(buttons[0]) {
+				save_color = {211, 250, 127, 255}
 
 				if rl.IsMouseButtonPressed(.LEFT) {
+					update_timer = false
+					play_popup_animation = true
+
+					buf, ok := json.marshal(time, allocator = context.temp_allocator)
+					if ok != nil {
+						fmt.println(ok)
+					}
+					fd, open_err := os.open("time.json", os.O_RDWR)
+					defer os.close(fd)
+
+					previous_data_tmp, _ := os.read_entire_file(
+						"time.json",
+						allocator = context.temp_allocator,
+					)
+
+					//skipping the opening and closing square bracket 
+					previous_data := previous_data_tmp
+					if len(previous_data_tmp) > 0 {
+						previous_data = previous_data_tmp[1:]
+
+						os.write_string(fd, "[")
+						os.write_string(fd, string(buf))
+						os.write_string(fd, ",\n")
+						os.write_string(fd, string(previous_data))
+					} else {
+
+						os.write_string(fd, "[")
+						os.write_string(fd, string(buf))
+						os.write_string(fd, ",\n")
+						os.write_string(fd, "]")
+					}
+
+					last_saved_time = time
+
+					time.secs_full = 0.0
+					time.mins = 0
+					time.secs = 0
+					time.mili = 0
+					time.hours = 0
+
+					started = false
+				}
+			} else {
+				save_color = {162, 245, 73, 255}
+			}
+
+			if started {
+				if rl.IsKeyPressed(.F) {
 					time.secs_full = 0.0
 					time.mins = 0
 					time.secs = 0
@@ -236,63 +264,103 @@ main :: proc() {
 					update_timer = false
 					started = false
 				}
+
+				if collission_mouse_rect(buttons[2]) {
+					start_color = {245, 122, 122, 255}
+
+					if rl.IsMouseButtonPressed(.LEFT) {
+						time.secs_full = 0.0
+						time.mins = 0
+						time.secs = 0
+						time.mili = 0
+						time.hours = 0
+						update_timer = false
+						started = false
+					}
+				} else {
+					start_color = {255, 79, 79, 255}
+				}
+
 			} else {
-				start_color = {255, 79, 79, 255}
-			}
 
-		} else {
+				if rl.IsKeyPressed(.F) {
 
-			if rl.IsKeyPressed(.F) {
-
-				update_timer = true
-				started = true
-			}
-
-			if collission_mouse_rect(buttons[2]) {
-				start_color = {245, 122, 122, 255}
-				if rl.IsMouseButtonPressed(.LEFT) {
 					update_timer = true
 					started = true
 				}
-			} else {
-				start_color = {255, 79, 79, 255}
+
+				if collission_mouse_rect(buttons[2]) {
+					start_color = {245, 122, 122, 255}
+					if rl.IsMouseButtonPressed(.LEFT) {
+						update_timer = true
+						started = true
+					}
+				} else {
+					start_color = {255, 79, 79, 255}
+				}
 			}
-		}
 
 
-		if !paused {
-			if rl.IsKeyPressed(.P) {
-				update_timer = false
-				paused = true
-			}
-
-			if collission_mouse_rect(buttons[1]) {
-				pause_color = {139, 220, 240, 255}
-
-				if rl.IsMouseButtonPressed(.LEFT) {
+			if !paused {
+				if rl.IsKeyPressed(.P) {
 					update_timer = false
 					paused = true
 				}
+
+				if collission_mouse_rect(buttons[1]) {
+					pause_color = {139, 220, 240, 255}
+
+					if rl.IsMouseButtonPressed(.LEFT) {
+						update_timer = false
+						paused = true
+					}
+				} else {
+					pause_color = {87, 215, 247, 255}
+				}
 			} else {
-				pause_color = {87, 215, 247, 255}
-			}
-		} else {
-			if rl.IsKeyPressed(.P) {
-				update_timer = true
-				paused = false
-			}
-
-			if collission_mouse_rect(buttons[1]) {
-				pause_color = {139, 220, 240, 255}
-
-				if rl.IsMouseButtonPressed(.LEFT) {
+				if rl.IsKeyPressed(.P) {
 					update_timer = true
 					paused = false
 				}
-			} else {
-				pause_color = {87, 215, 247, 255}
+
+				if collission_mouse_rect(buttons[1]) {
+					pause_color = {139, 220, 240, 255}
+
+					if rl.IsMouseButtonPressed(.LEFT) {
+						update_timer = true
+						paused = false
+					}
+				} else {
+					pause_color = {87, 215, 247, 255}
+				}
+
 			}
 
+		case .Log:
+			if time_log_cursor < len(serialized_times) - 1 &&
+			   (rl.IsKeyPressed(.K) || rl.IsKeyPressed(.DOWN)) {
+				time_log_cursor += 1
+			}
+
+			if time_log_cursor > 0 && (rl.IsKeyPressed(.J) || rl.IsKeyPressed(.UP)) {
+				time_log_cursor -= 1
+			}
+		}
+
+		if collission_mouse_rect(log_rect) {
+			log_color = rl.LIGHTGRAY
+
+			if rl.IsMouseButtonPressed(.LEFT) {
+				if scene == .Main {
+					scene = .Log
+					delete(serialized_times)
+					serialized_times = get_serialized_times()
+				} else {
+					scene = .Main
+				}
+			}
+		} else {
+			log_color = rl.GRAY
 		}
 
 		if started && update_timer {
@@ -303,51 +371,65 @@ main :: proc() {
 		rl.BeginDrawing()
 		rl.ClearBackground({240, 240, 240, 255})
 
-		if play_popup_animation {
-			animaton_time += f64(rl.GetFrameTime())
-			if animaton_time >= animation_time_max {
-				animaton_time = 0.0
-				play_popup_animation = false
-				saved_popup_color.a = 255
+		switch scene {
+		case .Main:
+			if play_popup_animation {
+				animaton_time += f64(rl.GetFrameTime())
+				if animaton_time >= animation_time_max {
+					animaton_time = 0.0
+					play_popup_animation = false
+					saved_popup_color.a = 255
+				}
+
+				saved_popup_color.a -= 2
+
+				rl.DrawRectangleRec(saved_popup, saved_popup_color)
+				adjust_and_draw_text(
+					strings.concatenate(
+						{"time spent: ", get_time_string(last_saved_time)},
+						context.temp_allocator,
+					),
+					saved_popup,
+				)
 			}
 
-			saved_popup_color.a -= 2
-
-			rl.DrawRectangleRec(saved_popup, saved_popup_color)
-			adjust_and_draw_text(
-				strings.concatenate(
-					{"time spent: ", get_time_string(last_saved_time)},
-					context.temp_allocator,
-				),
-				saved_popup,
+			rl.DrawTextEx(
+				font,
+				strings.clone_to_cstring(get_time_string(time), context.temp_allocator),
+				pos,
+				40.0,
+				10.0,
+				rl.BLACK,
 			)
+
+			rl.DrawRectangleRec(buttons[0], save_color)
+			adjust_and_draw_text("save", buttons[0])
+
+			rl.DrawRectangleRec(buttons[2], start_color)
+			if started {
+				adjust_and_draw_text("stop", buttons[2])
+			} else {
+				adjust_and_draw_text("start", buttons[2])
+			}
+
+			rl.DrawRectangleRec(buttons[1], pause_color)
+			if paused {
+				adjust_and_draw_text("unpause", buttons[1])
+			} else {
+				adjust_and_draw_text("pause", buttons[1])
+			}
+
+		case .Log:
+			for ser_time, i in serialized_times[time_log_cursor:] {
+				cur_rect := time_rect
+				cur_rect.y += f32(i) * time_rect_y_increment
+				rl.DrawRectangleRec(cur_rect, rl.BLACK)
+				adjust_and_draw_text(get_time_string(ser_time), cur_rect)
+			}
 		}
 
-		rl.DrawTextEx(
-			font,
-			strings.clone_to_cstring(get_time_string(time), context.temp_allocator),
-			pos,
-			40.0,
-			10.0,
-			rl.BLACK,
-		)
-
-		rl.DrawRectangleRec(buttons[0], save_color)
-		adjust_and_draw_text("save", buttons[0])
-
-		rl.DrawRectangleRec(buttons[2], start_color)
-		if started {
-			adjust_and_draw_text("stop", buttons[2])
-		} else {
-			adjust_and_draw_text("start", buttons[2])
-		}
-
-		rl.DrawRectangleRec(buttons[1], pause_color)
-		if paused {
-			adjust_and_draw_text("unpause", buttons[1])
-		} else {
-			adjust_and_draw_text("pause", buttons[1])
-		}
+		rl.DrawRectangleRec(log_rect, log_color)
+		adjust_and_draw_text(" i", log_rect)
 
 		rl.EndDrawing()
 
@@ -355,6 +437,7 @@ main :: proc() {
 	}
 
 	delete(buttons)
+	delete(serialized_times)
 
 	rl.CloseWindow()
 
