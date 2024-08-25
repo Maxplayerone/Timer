@@ -8,6 +8,7 @@ import "core:os"
 import "core:slice"
 import "core:strconv"
 import "core:strings"
+import "core:time"
 import rl "vendor:raylib"
 
 Width :: 1080
@@ -28,15 +29,16 @@ collission_mouse_rect :: proc(rect: rl.Rectangle) -> bool {
 //you should only modify secs_full
 //time.secs_full += 3600 for adding an hour
 //time.secs_full += 60 for adding a minute
-Time :: struct {
+Timer :: struct {
 	hours:     int,
 	mins:      int,
 	secs:      int,
 	mili:      int,
 	secs_full: f32,
+	_nsec:     i64,
 }
 
-update_time :: proc(time: ^Time) {
+update_timer_ :: proc(time: ^Timer) {
 	time.secs_full += rl.GetFrameTime()
 	time.mili = int((time.secs_full - math.floor(time.secs_full)) * 100)
 	time.secs = int(time.secs_full) % 60
@@ -44,7 +46,7 @@ update_time :: proc(time: ^Time) {
 	time.hours = int(math.floor(time.secs_full)) / 3600
 }
 
-get_time_string :: proc(time: Time) -> string {
+get_timer_string :: proc(time: Timer) -> string {
 	b := strings.builder_make(context.temp_allocator)
 	buf: [8]byte
 
@@ -68,8 +70,8 @@ Scene :: enum {
 	Log,
 }
 
-get_serialized_times :: proc(allocator := context.allocator) -> [dynamic]Time {
-	times := make([dynamic]Time, allocator)
+get_serialized_times :: proc(allocator := context.allocator) -> [dynamic]Timer {
+	times := make([dynamic]Timer, allocator)
 
 	data, ok := os.read_entire_file_from_filename("time.json", context.temp_allocator)
 
@@ -83,22 +85,58 @@ get_serialized_times :: proc(allocator := context.allocator) -> [dynamic]Time {
 		fmt.eprintln("Error:", err)
 	}
 
-	for time_obj_unpacked in json_data.(json.Array) {
-		tmp_time := Time{}
+	#partial switch t in json_data {
+	case json.Array:
+		for time_obj_unpacked in t {
+			tmp_time := Timer{}
 
-		//sometimes time_obj_unpacked isn't json.Object...for some reason
-		#partial switch time_obj in time_obj_unpacked {
-		case json.Object:
-			//fmt.println(time_obj)
-			tmp_time.hours = int(time_obj["hours"].(json.Float))
-			tmp_time.mins = int(time_obj["mins"].(json.Float))
-			tmp_time.secs = int(time_obj["secs"].(json.Float))
-			tmp_time.mili = int(time_obj["mili"].(json.Float))
-			append(&times, tmp_time)
+			//sometimes time_obj_unpacked isn't json.Object...for some reason
+			#partial switch time_obj in time_obj_unpacked {
+			case json.Object:
+				//fmt.println(time_obj)
+				tmp_time.hours = int(time_obj["hours"].(json.Float))
+				tmp_time.mins = int(time_obj["mins"].(json.Float))
+				tmp_time.secs = int(time_obj["secs"].(json.Float))
+				tmp_time.mili = int(time_obj["mili"].(json.Float))
+				tmp_time._nsec = i64(time_obj["_nsec"].(json.Float))
+
+				append(&times, tmp_time)
+			}
 		}
 	}
 
 	return times
+}
+
+save_time_to_json :: proc(timer: ^Timer, filename := "time.json") {
+	timer._nsec = time.now()._nsec
+
+	buf, ok := json.marshal(timer^, allocator = context.temp_allocator)
+	if ok != nil {
+		fmt.println(ok)
+		fmt.println("marshalling didn't go well")
+	}
+	fd, open_err := os.open(filename, os.O_RDWR)
+	defer os.close(fd)
+
+	previous_data_tmp, _ := os.read_entire_file(filename, allocator = context.temp_allocator)
+
+	//skipping the opening and closing square bracket 
+	previous_data := previous_data_tmp
+	if len(previous_data_tmp) > 0 {
+		previous_data = previous_data_tmp[1:]
+
+		os.write_string(fd, "[")
+		os.write_string(fd, string(buf))
+		os.write_string(fd, ",\n")
+		os.write_string(fd, string(previous_data))
+	} else {
+
+		os.write_string(fd, "[")
+		os.write_string(fd, string(buf))
+		os.write_string(fd, ",\n")
+		os.write_string(fd, "]")
+	}
 }
 
 main :: proc() {
@@ -110,7 +148,7 @@ main :: proc() {
 	rl.SetTargetFPS(60)
 
 	font := rl.GetFontDefault()
-	time := Time{}
+	timer := Timer{}
 
 	dims := rl.MeasureTextEx(font, "0:00:00:00", 40.0, 10.0)
 	pos := rl.Vector2{Width / 2 - dims.x / 2, Height / 2 - dims.y}
@@ -131,7 +169,7 @@ main :: proc() {
 	animation_time_max := 1.5
 	animaton_time := 0.0
 	play_popup_animation := false
-	last_saved_time := Time{}
+	last_saved_time := Timer{}
 	saved_popup_color := rl.Color{0, 255, 0, 255}
 
 	log_rect := rl.Rectangle{Width - 75.0, 25.0, 50.0, 50.0}
@@ -143,7 +181,7 @@ main :: proc() {
 
 	scene := Scene.Main
 
-	serialized_times := make([dynamic]Time, context.allocator)
+	serialized_times := make([dynamic]Timer, context.allocator)
 
 	for !rl.WindowShouldClose() {
 
@@ -164,42 +202,15 @@ main :: proc() {
 				update_timer = false
 				play_popup_animation = true
 
-				buf, ok := json.marshal(time, allocator = context.temp_allocator)
-				if ok != nil {
-					fmt.println(ok)
-				}
-				fd, open_err := os.open("time.json", os.O_RDWR)
-				defer os.close(fd)
+				save_time_to_json(&timer)
 
-				previous_data_tmp, _ := os.read_entire_file(
-					"time.json",
-					allocator = context.temp_allocator,
-				)
+				last_saved_time = timer
 
-				//skipping the opening and closing square bracket 
-				previous_data := previous_data_tmp
-				if len(previous_data_tmp) > 0 {
-					previous_data = previous_data_tmp[1:]
-
-					os.write_string(fd, "[")
-					os.write_string(fd, string(buf))
-					os.write_string(fd, ",\n")
-					os.write_string(fd, string(previous_data))
-				} else {
-
-					os.write_string(fd, "[")
-					os.write_string(fd, string(buf))
-					os.write_string(fd, ",\n")
-					os.write_string(fd, "]")
-				}
-
-				last_saved_time = time
-
-				time.secs_full = 0.0
-				time.mins = 0
-				time.secs = 0
-				time.mili = 0
-				time.hours = 0
+				timer.secs_full = 0.0
+				timer.mins = 0
+				timer.secs = 0
+				timer.mili = 0
+				timer.hours = 0
 
 				started = false
 			}
@@ -211,42 +222,15 @@ main :: proc() {
 					update_timer = false
 					play_popup_animation = true
 
-					buf, ok := json.marshal(time, allocator = context.temp_allocator)
-					if ok != nil {
-						fmt.println(ok)
-					}
-					fd, open_err := os.open("time.json", os.O_RDWR)
-					defer os.close(fd)
+					save_time_to_json(&timer)
 
-					previous_data_tmp, _ := os.read_entire_file(
-						"time.json",
-						allocator = context.temp_allocator,
-					)
+					last_saved_time = timer
 
-					//skipping the opening and closing square bracket 
-					previous_data := previous_data_tmp
-					if len(previous_data_tmp) > 0 {
-						previous_data = previous_data_tmp[1:]
-
-						os.write_string(fd, "[")
-						os.write_string(fd, string(buf))
-						os.write_string(fd, ",\n")
-						os.write_string(fd, string(previous_data))
-					} else {
-
-						os.write_string(fd, "[")
-						os.write_string(fd, string(buf))
-						os.write_string(fd, ",\n")
-						os.write_string(fd, "]")
-					}
-
-					last_saved_time = time
-
-					time.secs_full = 0.0
-					time.mins = 0
-					time.secs = 0
-					time.mili = 0
-					time.hours = 0
+					timer.secs_full = 0.0
+					timer.mins = 0
+					timer.secs = 0
+					timer.mili = 0
+					timer.hours = 0
 
 					started = false
 				}
@@ -256,11 +240,11 @@ main :: proc() {
 
 			if started {
 				if rl.IsKeyPressed(.F) {
-					time.secs_full = 0.0
-					time.mins = 0
-					time.secs = 0
-					time.mili = 0
-					time.hours = 0
+					timer.secs_full = 0.0
+					timer.mins = 0
+					timer.secs = 0
+					timer.mili = 0
+					timer.hours = 0
 					update_timer = false
 					started = false
 				}
@@ -269,11 +253,11 @@ main :: proc() {
 					start_color = {245, 122, 122, 255}
 
 					if rl.IsMouseButtonPressed(.LEFT) {
-						time.secs_full = 0.0
-						time.mins = 0
-						time.secs = 0
-						time.mili = 0
-						time.hours = 0
+						timer.secs_full = 0.0
+						timer.mins = 0
+						timer.secs = 0
+						timer.mili = 0
+						timer.hours = 0
 						update_timer = false
 						started = false
 					}
@@ -364,7 +348,7 @@ main :: proc() {
 		}
 
 		if started && update_timer {
-			update_time(&time)
+			update_timer_(&timer)
 		}
 
 		//rendering
@@ -386,7 +370,7 @@ main :: proc() {
 				rl.DrawRectangleRec(saved_popup, saved_popup_color)
 				adjust_and_draw_text(
 					strings.concatenate(
-						{"time spent: ", get_time_string(last_saved_time)},
+						{"time spent: ", get_timer_string(last_saved_time)},
 						context.temp_allocator,
 					),
 					saved_popup,
@@ -395,7 +379,7 @@ main :: proc() {
 
 			rl.DrawTextEx(
 				font,
-				strings.clone_to_cstring(get_time_string(time), context.temp_allocator),
+				strings.clone_to_cstring(get_timer_string(timer), context.temp_allocator),
 				pos,
 				40.0,
 				10.0,
@@ -424,7 +408,36 @@ main :: proc() {
 				cur_rect := time_rect
 				cur_rect.y += f32(i) * time_rect_y_increment
 				rl.DrawRectangleRec(cur_rect, rl.BLACK)
-				adjust_and_draw_text(get_time_string(ser_time), cur_rect)
+
+				thing := time.Time {
+					_nsec = ser_time._nsec,
+				}
+				hour, min, _ := time.clock_from_time(thing)
+				year, month_enum, day := time.date(thing)
+				month := int(month_enum)
+
+				//---------------------
+				//I have to add 2 to hour...why? Idk
+				hour += 2
+				//---------------------
+
+				date_formatted := fmt.aprint(
+					day,
+					".",
+					month,
+					".",
+					year,
+					" ",
+					hour,
+					":",
+					min,
+					sep = "",
+					allocator = context.temp_allocator,
+				)
+
+				rects := slice_rect(cur_rect, 2, {0.0, 0.0}, 0.0, context.temp_allocator)
+				adjust_and_draw_text(get_timer_string(ser_time), rects[0])
+				adjust_and_draw_text(date_formatted, rects[1])
 			}
 		}
 
@@ -433,7 +446,7 @@ main :: proc() {
 
 		rl.EndDrawing()
 
-		free_all(context.temp_allocator)
+		//free_all(context.temp_allocator)
 	}
 
 	delete(buttons)
