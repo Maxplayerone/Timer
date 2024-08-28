@@ -80,6 +80,7 @@ adjust_and_draw_text :: proc(
 	padding: rl.Vector2 = {10.0, 10.0},
 	wanted_scale: int = 100,
 	min_scale: f32 = 15,
+	color := rl.WHITE,
 ) {
 	scale := fit_text_in_rect(
 		text,
@@ -93,7 +94,7 @@ adjust_and_draw_text :: proc(
 			i32(rect.x + padding.x),
 			i32(rect.y + padding.y),
 			i32(scale),
-			rl.WHITE,
+			color,
 		)
 	}
 }

@@ -3,6 +3,7 @@ package timer
 import "core:encoding/json"
 import "core:fmt"
 import "core:math"
+import "core:math/rand"
 import "core:mem"
 import "core:os"
 import "core:slice"
@@ -38,8 +39,10 @@ Timer :: struct {
 	_nsec:     i64,
 }
 
+clock_speed: f32 = 1000.0
+
 update_timer_ :: proc(time: ^Timer) {
-	time.secs_full += rl.GetFrameTime()
+	time.secs_full += rl.GetFrameTime() * clock_speed
 	time.mili = int((time.secs_full - math.floor(time.secs_full)) * 100)
 	time.secs = int(time.secs_full) % 60
 	time.mins = (int(math.floor(time.secs_full)) / 60) % 60
@@ -139,6 +142,96 @@ save_time_to_json :: proc(timer: ^Timer, filename := "time.json") {
 	}
 }
 
+save_total_time :: proc(time_collector: Timer, filename := "total_time.json") {
+	buf, err := json.marshal(time_collector, allocator = context.temp_allocator)
+	if err != nil {
+		fmt.println("json marshal error ", err)
+	}
+
+	os.write_entire_file(filename, buf)
+}
+
+get_total_time_from_json :: proc(filename := "total_time.json") -> Timer {
+	data, ok := os.read_entire_file_from_filename(filename, context.temp_allocator)
+	if !ok {
+		fmt.eprintln("Failed to load the file!")
+	}
+
+	json_data, err := json.parse(data, allocator = context.temp_allocator)
+	if err != .None {
+		fmt.eprintln("Failed to parse the json file.")
+		fmt.eprintln("Error:", err)
+	}
+
+	total_timer: Timer
+	#partial switch t in json_data {
+	case json.Object:
+		total_timer.hours = int(t["hours"].(json.Float))
+		total_timer.mins = int(t["mins"].(json.Float))
+		total_timer.secs = int(t["secs"].(json.Float))
+		total_timer.mili = int(t["mili"].(json.Float))
+	}
+
+	return total_timer
+}
+
+generate_random_colour :: proc() -> rl.Color {
+	rand_num := rand.uint32() % 13
+	color := rl.Color{}
+
+	switch rand_num {
+	case 0:
+		color = rl.LIGHTGRAY
+	case 1:
+		color = rl.YELLOW
+	case 2:
+		color = rl.ORANGE
+	case 3:
+		color = rl.PINK
+	case 4:
+		color = rl.RED
+	case 5:
+		color = rl.GREEN
+	case 6:
+		color = rl.LIME
+	case 7:
+		color = rl.DARKGREEN
+	case 8:
+		color = rl.SKYBLUE
+	case 9:
+		color = rl.BLUE
+	case 10:
+		color = rl.PURPLE
+	case 11:
+		color = rl.VIOLET
+	case 12:
+		color = rl.WHITE
+	case 13:
+		color = rl.MAGENTA
+	}
+	return color
+}
+
+add_time_to_time_collector :: proc(timer_collector: ^Timer, timer: Timer) {
+	timer_collector.hours += timer.hours
+	timer_collector.mins += timer.mins
+	timer_collector.secs += timer.secs
+	timer_collector.mili += timer.mili
+
+	for timer_collector.mili >= 1000 {
+		timer_collector.secs += 1
+		timer_collector.mili -= 1000
+	}
+	for timer_collector.secs >= 60 {
+		timer_collector.mins += 1
+		timer_collector.secs -= 60
+	}
+	for timer_collector.mins >= 60 {
+		timer_collector.hours += 1
+		timer_collector.mins -= 60
+	}
+}
+
 main :: proc() {
 	tracking_allocator: mem.Tracking_Allocator
 	mem.tracking_allocator_init(&tracking_allocator, context.allocator)
@@ -183,6 +276,14 @@ main :: proc() {
 
 	serialized_times := make([dynamic]Timer, context.allocator)
 
+	que_icon_rect := rl.Rectangle{27.0, 27.0, 46.0, 46.0}
+	que_count_rect := rl.Rectangle{75.0, 25.0, 50.0, 50.0}
+	que_count := 0
+	que_icon_color := generate_random_colour()
+
+	time_collector := get_total_time_from_json()
+	fmt.println(time_collector)
+
 	for !rl.WindowShouldClose() {
 
 		if rl.IsKeyPressed(.I) {
@@ -203,6 +304,9 @@ main :: proc() {
 				play_popup_animation = true
 
 				save_time_to_json(&timer)
+
+				add_time_to_time_collector(&time_collector, timer)
+				save_total_time(time_collector)
 
 				last_saved_time = timer
 
@@ -402,6 +506,10 @@ main :: proc() {
 			} else {
 				adjust_and_draw_text("pause", buttons[1])
 			}
+
+			rl.DrawRectangleRec(que_icon_rect, que_icon_color)
+			buf: [4]byte
+			adjust_and_draw_text(strconv.itoa(buf[:], que_count), que_count_rect, color = rl.BLACK)
 
 		case .Log:
 			for ser_time, i in serialized_times[time_log_cursor:] {
