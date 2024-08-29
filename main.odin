@@ -276,13 +276,16 @@ main :: proc() {
 
 	serialized_times := make([dynamic]Timer, context.allocator)
 
+	time_collector := get_total_time_from_json()
+
 	que_icon_rect := rl.Rectangle{27.0, 27.0, 46.0, 46.0}
 	que_count_rect := rl.Rectangle{75.0, 25.0, 50.0, 50.0}
-	que_count := 0
+	que_count := time_collector.hours
 	que_icon_color := generate_random_colour()
 
-	time_collector := get_total_time_from_json()
-	fmt.println(time_collector)
+	new_que_popup_rect := rl.Rectangle{Width - 350.0, Height - 150.0, 300.0, 50.0}
+	draw_new_que_popup_rect := false
+	new_que_count := 0
 
 	for !rl.WindowShouldClose() {
 
@@ -307,6 +310,14 @@ main :: proc() {
 
 				add_time_to_time_collector(&time_collector, timer)
 				save_total_time(time_collector)
+
+				//we hit another hour
+				if time_collector.hours > que_count {
+					new_que_count = time_collector.hours - que_count
+					que_count = time_collector.hours
+					draw_new_que_popup_rect = true
+					que_icon_color = generate_random_colour()
+				}
 
 				last_saved_time = timer
 
@@ -463,10 +474,14 @@ main :: proc() {
 		case .Main:
 			if play_popup_animation {
 				animaton_time += f64(rl.GetFrameTime())
+				//end of animation
 				if animaton_time >= animation_time_max {
 					animaton_time = 0.0
 					play_popup_animation = false
 					saved_popup_color.a = 255
+
+					new_que_count = 0
+					draw_new_que_popup_rect = false
 				}
 
 				saved_popup_color.a -= 2
@@ -479,6 +494,19 @@ main :: proc() {
 					),
 					saved_popup,
 				)
+
+				if draw_new_que_popup_rect {
+					rl.DrawRectangleRec(new_que_popup_rect, saved_popup_color)
+					buf: [4]byte
+					new_que_count_str := strconv.itoa(buf[:], new_que_count)
+					adjust_and_draw_text(
+						strings.concatenate(
+							{new_que_count_str, " new ques!"},
+							allocator = context.temp_allocator,
+						),
+						new_que_popup_rect,
+					)
+				}
 			}
 
 			rl.DrawTextEx(
