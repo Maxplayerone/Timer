@@ -6,10 +6,16 @@ Other than that I wanted to know how much time I spend programming each session
 - F - start/stop the timer
 - S - save
 - P - pause/unpause
+- I - check all of your logged sessions
+- Q - check your ques tower
+IN QUE TOWER SCREEN
+-Up Arrow- go up in que tower
+-Down Arrow- go down in que tower
+-R - regenerate the color of individual que cubes
+
+![que tower](res/que_towe.PNG)
 
 If you want to save your session you HAVE TO press S. Pressing F after starting the timer
 will delete the record
 ![log screen](res/log.PNG)
 
-##Ideas for the future
->getting "coins" or some other currency for completing an hour of working

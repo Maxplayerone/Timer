@@ -39,7 +39,7 @@ Timer :: struct {
 	_nsec:     i64,
 }
 
-clock_speed: f32 = 1000.0
+clock_speed: f32 = 1.0
 
 update_timer_ :: proc(time: ^Timer) {
 	time.secs_full += rl.GetFrameTime() * clock_speed
@@ -71,6 +71,7 @@ get_timer_string :: proc(time: Timer) -> string {
 Scene :: enum {
 	Main,
 	Log,
+	QueTower,
 }
 
 get_serialized_times :: proc(allocator := context.allocator) -> [dynamic]Timer {
@@ -287,6 +288,17 @@ main :: proc() {
 	draw_new_que_popup_rect := false
 	new_que_count := 0
 
+	que_tower_rect := rl.Rectangle{Width - 75.0, 100.0, 50.0, 50.0}
+	que_tower_color := rl.GRAY
+
+	first_que_cube_rect := rl.Rectangle{100.0, Height - 55.0, 55.0, 55.0}
+	que_cube_colours: [dynamic]rl.Color
+	for _ in 0 ..< que_count {
+		append(&que_cube_colours, generate_random_colour())
+	}
+
+	que_cube_count_rect := rl.Rectangle{Width / 2 - 150.0, 25.0, 300.0, 75.0}
+
 	for !rl.WindowShouldClose() {
 
 		if rl.IsKeyPressed(.I) {
@@ -294,6 +306,14 @@ main :: proc() {
 				scene = .Log
 				delete(serialized_times)
 				serialized_times = get_serialized_times()
+			} else {
+				scene = .Main
+			}
+		}
+
+		if rl.IsKeyPressed(.Q) {
+			if scene == .Main {
+				scene = .QueTower
 			} else {
 				scene = .Main
 			}
@@ -314,6 +334,10 @@ main :: proc() {
 				//we hit another hour
 				if time_collector.hours > que_count {
 					new_que_count = time_collector.hours - que_count
+					for _ in 0 ..< new_que_count {
+						append(&que_cube_colours, generate_random_colour())
+					}
+
 					que_count = time_collector.hours
 					draw_new_que_popup_rect = true
 					que_icon_color = generate_random_colour()
@@ -434,7 +458,6 @@ main :: proc() {
 				}
 
 			}
-
 		case .Log:
 			if time_log_cursor < len(serialized_times) - 1 &&
 			   (rl.IsKeyPressed(.K) || rl.IsKeyPressed(.DOWN)) {
@@ -443,6 +466,19 @@ main :: proc() {
 
 			if time_log_cursor > 0 && (rl.IsKeyPressed(.J) || rl.IsKeyPressed(.UP)) {
 				time_log_cursor -= 1
+			}
+		case .QueTower:
+			if rl.IsKeyPressed(.R) {
+				for i in 0 ..< len(que_cube_colours) {
+					que_cube_colours[i] = generate_random_colour()
+				}
+			}
+
+			if rl.IsKeyPressed(.UP) {
+				first_que_cube_rect.y += 55.0
+			}
+			if rl.IsKeyPressed(.DOWN) {
+				first_que_cube_rect.y -= 55.0
 			}
 		}
 
@@ -461,6 +497,21 @@ main :: proc() {
 		} else {
 			log_color = rl.GRAY
 		}
+
+		//que tower rect
+		if collission_mouse_rect(que_tower_rect) {
+			que_tower_color = rl.GRAY
+			if rl.IsMouseButtonPressed(.LEFT) {
+				if scene == .Main {
+					scene = .QueTower
+				} else {
+					scene = .Main
+				}
+			}
+		} else {
+			que_tower_color = rl.GRAY
+		}
+
 
 		if started && update_timer {
 			update_timer_(&timer)
@@ -575,10 +626,34 @@ main :: proc() {
 				adjust_and_draw_text(get_timer_string(ser_time), rects[0])
 				adjust_and_draw_text(date_formatted, rects[1])
 			}
+		case .QueTower:
+			for que_color, i in que_cube_colours {
+
+				x := f32(i % 16)
+				y := f32(i / 16)
+				que_cube := first_que_cube_rect
+				que_cube.x += x * first_que_cube_rect.width
+				que_cube.y -= y * first_que_cube_rect.height
+				rl.DrawRectangleRec(que_cube, que_color)
+			}
+
+			rl.DrawRectangleRec(que_cube_count_rect, rl.Color{200, 200, 200, 255})
+			buf: [4]byte
+			adjust_and_draw_text(
+				strings.concatenate(
+					{"You have ", strconv.itoa(buf[:], que_count), " ques!"},
+					allocator = context.temp_allocator,
+				),
+				que_cube_count_rect,
+			)
 		}
 
 		rl.DrawRectangleRec(log_rect, log_color)
 		adjust_and_draw_text(" i", log_rect)
+
+		rl.DrawRectangleRec(que_tower_rect, que_tower_color)
+		adjust_and_draw_text("Q", que_tower_rect, padding = {10.0, 10.0}, wanted_scale = 40.0)
+
 
 		rl.EndDrawing()
 
@@ -587,6 +662,7 @@ main :: proc() {
 
 	delete(buttons)
 	delete(serialized_times)
+	delete(que_cube_colours)
 
 	rl.CloseWindow()
 
