@@ -2,7 +2,8 @@
 ![main menu](res/main_menu.PNG)
 This is a simple project I made mostly to finally finish something:P
 Other than that I wanted to know how much time I spend programming each session
-##hotkeys:
+
+## hotkeys:
 - F - start/stop the timer
 - S - save
 - P - pause/unpause
@@ -12,6 +13,10 @@ IN QUE TOWER SCREEN
 -Up Arrow- go up in que tower
 -Down Arrow- go down in que tower
 -R - regenerate the color of individual que cubes
+
+## Ques:
+The program has a collectible called 'que' or 'ques'. Every hour you spend working you get an
+extra que. You can check how many ques you've got in the que tower screen
 
 ![que tower](res/que_towe.PNG)
 
